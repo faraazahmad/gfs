@@ -14,7 +14,7 @@ defmodule Gfs.Manager do
 
     children = [
       Gfs.Repo.Manager,
-      Gfs.Task.PingNodes
+      Gfs.Task.MonitorNodes
     ]
     IO.puts "Starting GFS Manager Application"
     Supervisor.start_link(children, strategy: :one_for_one)
