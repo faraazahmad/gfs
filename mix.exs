@@ -11,9 +11,18 @@ defmodule Gfs.MixProject do
     ]
   end
 
+  def nodes do
+    [
+      :"alice@Syeds-MacBook-Pro.local",
+      :"bob@Syeds-MacBook-Pro.local",
+      :"charlie@Syeds-MacBook-Pro.local"
+    ]
+  end
+
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
+      env: [nodes: nodes()],
       extra_applications: [:logger],
       mod: {Gfs.Manager, []},
       mod: {Gfs.ChunkServer, []}
