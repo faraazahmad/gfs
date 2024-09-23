@@ -28,7 +28,14 @@ defmodule Gfs.Task.MonitorNodes do
 
   def monitor do
     # Update all nodes' status when bringing up app
-    Enum.each(Node.list, fn node -> update_node_status(Atom.to_string(node), true) end)
+    Enum.each(all_nodes(), fn node ->
+      node_alive = case Node.ping(node) do
+        :pong -> true
+        _ -> false
+      end
+      update_node_status(Atom.to_string(node), node_alive)
+    end)
+
     # Start monitor for all nodes' connections
     :net_kernel.monitor_nodes(true) 
 
