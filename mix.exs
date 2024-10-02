@@ -24,7 +24,7 @@ defmodule Gfs.MixProject do
     [
       env: [nodes: nodes()],
       extra_applications: [:logger],
-      mod: {Gfs.Manager, []},
+      mod: {Gfs.Manager.App, []},
       mod: {Gfs.ChunkServer, []}
     ]
   end
@@ -34,6 +34,8 @@ defmodule Gfs.MixProject do
     [
       {:ecto, "~> 3.12"},
       {:ecto_sqlite3, "~> 0.17.2"},
+      {:bandit, "~> 1.5"},
+      {:jason, "~> 1.4"}
     ]
   end
 end

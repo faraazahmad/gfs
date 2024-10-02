@@ -1,4 +1,4 @@
-defmodule Gfs.Repo.Manager do
+defmodule Gfs.Manager.Repo do
   use Ecto.Repo,
     otp_app: :gfs,
     adapter: Ecto.Adapters.SQLite3

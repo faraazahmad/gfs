@@ -1,4 +1,4 @@
-defmodule Gfs.Manager do
+defmodule Gfs.Manager.App do
   use Application
   use GenServer
 
@@ -13,7 +13,8 @@ defmodule Gfs.Manager do
     Enum.each(nodes, fn node -> connect_to_node(node) end)
 
     children = [
-      Gfs.Repo.Manager,
+      Gfs.Manager.Repo,
+      {Bandit, plug: Gfs.Manager.RestApi},
       Gfs.Task.MonitorNodes
     ]
     IO.puts "Starting GFS Manager Application"
@@ -21,8 +22,7 @@ defmodule Gfs.Manager do
   end
 
   defp connect_to_node(name) do
-    IO.puts "Connecting #{Node.self} to node #{name}"
+    IO.puts "Connecting to node #{name}"
     Node.connect(name)
   end
-
 end
