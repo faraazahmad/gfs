@@ -2,6 +2,7 @@ defmodule Gfs.Schema.Node do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @derive { Jason.Encoder, except: [:__meta__] }
   schema "node" do
     field :identifier, :string
     field :alive, :boolean

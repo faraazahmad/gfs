@@ -14,7 +14,7 @@ defmodule Gfs.Manager.App do
 
     children = [
       Gfs.Manager.Repo,
-      # {Bandit, plug: Gfs.Manager.RestApi},
+      {Bandit, plug: Gfs.Manager.RestApi},
       Gfs.Task.MonitorNodes
     ]
     IO.puts "Starting GFS Manager Application"

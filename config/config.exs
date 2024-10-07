@@ -1,5 +1,7 @@
 import Config
 
+config :ecto, json_library: Jason
+
 config :gfs, Gfs.Manager.Repo,
   database: Path.expand("~/.gfs/database/manager.db")
 
