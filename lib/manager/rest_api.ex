@@ -1,14 +1,17 @@
 defmodule Gfs.Manager.RestApi do
-  import Plug.Conn
+  use Plug.Router
 
-  def init(options) do
-    # initialize options
-    options
-  end
+  plug Plug.Logger
+  plug :match
+  plug :dispatch
 
-  def call(conn, _opts) do
-    conn
-    |> put_resp_content_type("text/plain")
-    |> send_resp(200, "Hello world")
+  get "/" do
+    send_resp(conn, 200, """
+    Use the JavaScript console to interact using websockets
+
+    sock  = new WebSocket("ws://localhost:4000/websocket")
+    sock.addEventListener("message", console.log)
+    sock.addEventListener("open", () => sock.send("ping"))
+    """)
   end
 end

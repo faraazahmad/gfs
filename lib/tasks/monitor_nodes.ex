@@ -2,7 +2,7 @@ defmodule Gfs.Task.MonitorNodes do
   use Task, restart: :permanent
 
   alias Gfs.Schema
-  alias Gfs.Repo
+  alias Gfs.Manager
 
   def start_link(_) do
     Task.start_link(__MODULE__, :monitor, [])
@@ -10,7 +10,7 @@ defmodule Gfs.Task.MonitorNodes do
 
   def all_nodes do
     connected_nodes = Enum.map(Node.list, fn node -> node end)
-    registered_nodes = Enum.map(Repo.Manager.all(Schema.Node), fn node -> String.to_atom(node.identifier) end)
+    registered_nodes = Enum.map(Manager.Repo.all(Schema.Node), fn node -> String.to_atom(node.identifier) end)
 
     Enum.concat(connected_nodes, registered_nodes)
     |> MapSet.new
@@ -18,12 +18,12 @@ defmodule Gfs.Task.MonitorNodes do
   end
 
   def update_node_status(node, alive) do
-      case Repo.Manager.get_by(Schema.Node, identifier: node) do
+      case Manager.Repo.get_by(Schema.Node, identifier: node) do
         nil  -> %Schema.Node{identifier: node}
         object -> object
       end
       |> Schema.Node.changeset(%{alive: alive, updated_at: DateTime.utc_now})
-      |> Repo.Manager.insert_or_update
+      |> Manager.Repo.insert_or_update
   end
 
   def monitor do
