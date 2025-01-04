@@ -29,12 +29,8 @@ defmodule Gfs.ChunkServer.RestApi do
   put "append/chunk/:chunk_id" do
     content = conn.body.content
     chunk_file_path = Path.expand("~/.gfs/chunk_server/chunks/#{chunk_id}")
-    file_content = case File.read(chunk_file_path) do
-      {:ok, binary_content} -> binary_content
-      {:error, _} -> nil
-    end
 
-    reply = File.write(chunk_file_path, "#{file_content}#{content}")
+    reply = File.write(chunk_file_path, content, [:append])
     send_resp(conn, 200, Jason.encode!(reply))
   end
 
