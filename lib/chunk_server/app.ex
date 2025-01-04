@@ -14,7 +14,7 @@ defmodule Gfs.ChunkServer.App do
 
     children = [
       Gfs.ChunkServer.Repo,
-      # {Bandit, plug: Gfs.Manager.RestApi},
+      {Bandit, plug: Gfs.ChunkServer.RestApi},
       # Gfs.Task.MonitorNodes
     ]
     IO.puts "Starting GFS ChunkServer Application"
