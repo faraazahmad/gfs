@@ -28,7 +28,7 @@ defmodule Gfs.Manager.RestApi do
     send_resp(conn, 300, "Not Implemented")
   end
 
-  get "/file/:file_name" do
+  get "/file/:file_name/chunks" do
     send_resp(conn, 300, "Not Implemented")
   end
 
