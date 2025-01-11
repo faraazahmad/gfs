@@ -9,8 +9,8 @@ defmodule Gfs.Manager.App do
 
   @impl true
   def start(_type, _args) do
-    nodes = Application.fetch_env!(:gfs, :nodes)
-    Enum.each(nodes, fn node -> connect_to_node(node) end)
+    registered_nodes = Gfs.Manager.Repo.all(Schema.Node)
+    Enum.each(registered_nodes, fn node -> connect_to_node(node) end)
 
     children = [
       Gfs.Manager.Repo,
@@ -22,7 +22,12 @@ defmodule Gfs.Manager.App do
   end
 
   defp connect_to_node(name) do
-    IO.puts "Connecting to node #{name}"
-    Node.connect(name)
+    IO.puts("Attempting connection to registered node: #{name}")
+
+    case Node.connect(name) do
+      true -> IO.puts("Connected to node #{name}")
+      false -> IO.puts("Unable to connect to node #{name}")
+      :ignored -> IO.puts("Node #{name} is offline")
+    end
   end
 end
