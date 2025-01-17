@@ -24,8 +24,7 @@ defmodule Gfs.MixProject do
     [
       env: [nodes: nodes()],
       extra_applications: [:logger],
-      mod: {Gfs.Manager.App, []},
-      mod: {Gfs.ChunkServer.App, []}
+      mod: {Gfs.App, []},
     ]
   end
 
