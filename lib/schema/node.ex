@@ -8,6 +8,8 @@ defmodule Gfs.Schema.Node do
     field :alive, :boolean
 
     timestamps()
+
+    has_one :chunk_server, Gfs.Schema.ChunkServer
   end
 
  def changeset(node, params \\ %{}) do

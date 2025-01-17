@@ -1,3 +1,5 @@
+import Ecto.Query
+
 defmodule Gfs.Manager.RestApi do
   use Plug.Router
 
@@ -29,7 +31,11 @@ defmodule Gfs.Manager.RestApi do
   end
 
   get "/file/:file_name/chunks" do
-    send_resp(conn, 300, "Not Implemented")
+    file_name = conn.params.file_name
+    file = Gfs.Manager.Repo.get_by(Gfs.Schema.File, name: file_name)
+    query = from chunk in Gfs.Schema.Chunk, where: chunk.file_id == ^file.id
+    chunks = Gfs.Manager.Repo.all(query)
+    send_resp(conn, 200, Jason.encode!(chunks))
   end
 
   match _ do
