@@ -1,4 +1,4 @@
-defmodule Gfs.Task.MonitorNodes do
+defmodule Gfs.Manager.Task.MonitorNodes do
   use Task, restart: :permanent
 
   alias Gfs.Schema
@@ -27,6 +27,10 @@ defmodule Gfs.Task.MonitorNodes do
   end
 
   def monitor do
+    # try connecting to all known nodes
+    registered_nodes = Gfs.Manager.Repo.all(Schema.Node)
+    Enum.each(registered_nodes, fn node -> connect_to_node(node) end)
+
     # Update all nodes' status when bringing up app
     Enum.each(all_nodes(), fn node ->
       node_alive = case Node.ping(node) do
@@ -45,6 +49,16 @@ defmodule Gfs.Task.MonitorNodes do
       other ->
         IO.puts("Undefined state of node monitor")
         IO.inspect(other)
+    end
+  end
+
+  defp connect_to_node(name) do
+    IO.puts("Attempting connection to registered node: #{name}")
+
+    case Node.connect(name) do
+      true -> IO.puts("Connected to node #{name}")
+      false -> IO.puts("Unable to connect to node #{name}")
+      :ignored -> IO.puts("Node #{name} is offline")
     end
   end
 end
