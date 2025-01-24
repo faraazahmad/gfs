@@ -40,7 +40,7 @@ defmodule Gfs.ChunkServer.RestApi do
       send_resp(conn, 400, "Chunk size exceeds limit (64KB), aborting append.")
   end
 
-  defp append_payload(conn, chunk_id, payload, available_space) when available_space - byte_size(payload) >= 0 do
+  defp append_payload(conn, chunk_id, payload, _available_space) do
     chunk_file_path = Path.expand("~/.gfs/chunk_server/chunks/#{chunk_id}")
     case File.write(chunk_file_path, payload, [:append]) do
       :ok -> send_resp(conn, 200, "Appended chunk #{chunk_id} with #{byte_size(payload) / 1000} KB payload.")
