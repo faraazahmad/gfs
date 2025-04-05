@@ -19,3 +19,12 @@ Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_do
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at <https://hexdocs.pm/gfs>.
 
+## Get Started
+
+You can run the server in either `manager` or `chunkserver` mode by:
+
+```bash
+mix run --no-halt -- <MODE>
+```
+
+Where `<MODE>` is either `manager` or `chunkserver`.
