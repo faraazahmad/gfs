@@ -4,6 +4,8 @@ defmodule Gfs.Schema.Chunk do
   schema "chunk" do
     field :uniq_id, :string
     field :version, :integer
+    field :start_byte, :integer
+    field :end_byte, :integer
     timestamps()
     
     belongs_to :file, Gfs.Schema.File
