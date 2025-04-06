@@ -47,18 +47,22 @@ defmodule Gfs.Manager.RestApi do
 
     if not is_nil(file) do
         query = from chunk in Gfs.Schema.Chunk,
-                where: chunk.file == ^file and
-                        chunk.start_byte == ^params.start_byte and
-                        chunk.end_byte == ^params.end_byte,
+                where: chunk.file_id == ^file.id and
+                        chunk.start_byte == ^params["start_byte"] and
+                        chunk.end_byte == ^params["end_byte"],
                 join: cs in Gfs.Schema.ChunkServer, on: cs.id == chunk.chunk_server_id,
                 limit: @replication_limit
         chunks = Gfs.Manager.Repo.all(query)
         send_resp(conn, 200, Jason.encode!(chunks))
     else
         # Create file entry in DB
-        {:ok, _file} = Gfs.Manager.Repo.insert(%Gfs.Schema.File{ path: file_path })
+        result = Gfs.Manager.Repo.insert(%Gfs.Schema.File{ path: file_path, updated_at: DateTime.truncate(DateTime.utc_now, :second) })
+        case result do
+          {:error, reason} -> send_resp(conn, 500, reason)
+        end
         # Given @replication_limit: Get available chunk servers and create chunk entries
-        send_resp(conn, 200, "")
+        chunkservers = Gfs.Manager.Repo.all(Gfs.Schema.ChunkServer, limit: @replication_limit)
+        send_resp(conn, 200, Jason.encode!(chunkservers))
     end
   end
 

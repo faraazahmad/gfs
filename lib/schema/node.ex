@@ -6,8 +6,8 @@ defmodule Gfs.Schema.Node do
   schema "node" do
     field :identifier, :string
     field :alive, :boolean
-
-    timestamps()
+    field :inserted_at, :utc_datetime
+    field :updated_at, :utc_datetime
 
     has_one :chunk_server, Gfs.Schema.ChunkServer
   end

@@ -3,7 +3,8 @@ defmodule Gfs.Schema.ChunkServer do
 
   schema "chunk_server" do
     field :name, :string
-    timestamps()
+    field :inserted_at, :utc_datetime
+    field :updated_at, :utc_datetime
     
     has_many :chunks, Gfs.Schema.Chunk
     belongs_to :node, Gfs.Schema.Node

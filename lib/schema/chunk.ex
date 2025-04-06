@@ -6,7 +6,8 @@ defmodule Gfs.Schema.Chunk do
     field :version, :integer
     field :start_byte, :integer
     field :end_byte, :integer
-    timestamps()
+    field :inserted_at, :utc_datetime
+    field :updated_at, :utc_datetime
     
     belongs_to :file, Gfs.Schema.File
     belongs_to :chunk_server, Gfs.Schema.ChunkServer

@@ -4,8 +4,8 @@ defmodule Gfs.Manager.Repo.Migrations.CreateFileTable do
   def change do
     create table("file") do
       add :path, :string
-
-      timestamps()
+      add :inserted_at, :utc_datetime
+      add :updated_at, :utc_datetime
     end
   end
 end

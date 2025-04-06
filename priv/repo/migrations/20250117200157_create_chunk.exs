@@ -5,8 +5,8 @@ defmodule Gfs.Manager.Repo.Migrations.CreateChunk do
     create table("chunk") do
       add :uniq_id, :string
       add :version, :integer
-
-      timestamps()
+      add :inserted_at, :utc_datetime
+      add :updated_at, :utc_datetime
     end
   end
 end

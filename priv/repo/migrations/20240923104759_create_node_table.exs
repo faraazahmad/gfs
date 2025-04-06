@@ -5,8 +5,8 @@ defmodule Gfs.Manager.Repo.Migrations.CreateNodeTable do
     create table("node") do
       add :identifier, :string
       add :alive, :boolean
-
-      timestamps()
+      add :inserted_at, :utc_datetime
+      add :updated_at, :utc_datetime
     end
   end
 end
