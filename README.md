@@ -28,3 +28,13 @@ mix run --no-halt -- <MODE>
 ```
 
 Where `<MODE>` is either `manager` or `chunkserver`.
+
+or run using `iex` with:
+
+```bash
+ iex --cookie <COOKIE> --sname <shortname> -S mix run -- <MODE>
+```
+Where:
+* `<shortname>` is any name you want to give to the node
+* `<COOKIE>` is string to be used as cookie. It needs to be the same between 2 nodes for them to find and connect with
+each other.
