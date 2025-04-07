@@ -40,23 +40,32 @@ defmodule Gfs.Manager.RestApi do
     send_resp(conn, 200, Jason.encode!(chunks))
   end
 
-  get "/file/:encoded_file_path/write/chunkservers" do
+  get "/file/:encoded_file_path/chunkservers" do
     params = conn.query_params
     file_path = :binary.decode_hex(encoded_file_path)
     file = Gfs.Manager.Repo.get_by(Gfs.Schema.File, path: file_path)
 
     if not is_nil(file) do
-        query = from chunk in Gfs.Schema.Chunk,
+        chunk_query = from chunk in Gfs.Schema.Chunk,
                 where: chunk.file_id == ^file.id and
                         chunk.start_byte == ^params["start_byte"] and
                         chunk.end_byte == ^params["end_byte"],
-                join: cs in Gfs.Schema.ChunkServer, on: cs.id == chunk.chunk_server_id,
-                limit: @replication_limit
-        chunks = Gfs.Manager.Repo.all(query)
-        send_resp(conn, 200, Jason.encode!(chunks))
+                select: chunk.id
+        chunk_ids = Gfs.Manager.Repo.all(chunk_query)
+        cs_query = from chunk_server in Gfs.Schema.ChunkServer,
+                    join: node in Gfs.Schema.Node, on: node.id == chunk_server.node_id,
+                    where: chunk_server.id in ^chunk_ids and node.alive == true
+        chunk_servers = Gfs.Manager.Repo.al(cs_query)
+        if length(chunk_servers) < @replication_limit do
+          create_chunks(file_path, params["start_byte"], params["end_byte"], @replication_limit - length(chunk_servers))
+        end
+        send_resp(conn, 200, Jason.encode!(chunk_servers))
     else
         # Create file entry in DB
-        result = Gfs.Manager.Repo.insert(%Gfs.Schema.File{ path: file_path, updated_at: DateTime.truncate(DateTime.utc_now, :second) })
+        result = Gfs.Manager.Repo.insert(%Gfs.Schema.File{
+            path: file_path,
+            updated_at: DateTime.truncate(DateTime.utc_now, :second)
+        })
         case result do
           {:error, reason} -> send_resp(conn, 500, reason)
         end
