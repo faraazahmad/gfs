@@ -41,13 +41,11 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
   end
 
   def update_node_status(node, alive) do
-    # connect_to_node(node)
-
     case Repo.get_by(Schema.Node, identifier: node) do
       nil -> %Schema.Node{identifier: node}
       object -> object
     end
-    |> Schema.Node.changeset(%{alive: alive, updated_at: DateTime.utc_now()})
+    |> Schema.Node.changeset(%{alive: alive})
     |> Repo.insert_or_update()
   end
 

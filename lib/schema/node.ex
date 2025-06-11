@@ -7,15 +7,15 @@ defmodule Gfs.Schema.Node do
     field(:identifier, :string)
     field(:role, :string)
     field(:alive, :boolean)
-    field(:inserted_at, :utc_datetime)
-    field(:updated_at, :utc_datetime)
 
     has_one(:chunk_server, Gfs.Schema.ChunkServer)
+
+    timestamps(type: :utc_datetime_usec)
   end
 
   def changeset(node, params \\ %{}) do
     node
-    |> cast(params, [:identifier, :role, :alive, :inserted_at, :updated_at])
-    |> validate_required([:identifier, :role, :alive, :inserted_at, :updated_at])
+    |> cast(params, [:identifier, :role, :alive])
+    |> validate_required([:identifier, :role, :alive])
   end
 end
