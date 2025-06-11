@@ -4,7 +4,7 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
   use Task, restart: :permanent
 
   alias Gfs.Schema
-  alias Gfs.Manager
+  alias Gfs.ChunkServer.Repo
 
   def start_link(_) do
     Task.start_link(__MODULE__, :monitor, [])
@@ -12,10 +12,10 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
 
   def monitor do
     # Search for master node in repo and connect to it
-    master_node = 
+    master_node =
       Gfs.Schema.Node
-      |> where(name: "master")
-      |> Gfs.ChunkServer.Repo.one
+      |> where(role: "manager")
+      |> Repo.one()
 
     # if master node is found, connect to it
     if master_node do
@@ -23,13 +23,17 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
     end
 
     # else, start monitoring for nodes and save node to Repo if found to be master
-
-    # # Start monitor for all nodes' connections
-    :net_kernel.monitor_nodes(true) 
+    # Start monitor for all nodes' connections
+    :net_kernel.monitor_nodes(true)
 
     receive do
-      {:nodeup, node} -> update_node_status(Atom.to_string(node), true)
-      {:nodedown, node} -> update_node_status(Atom.to_string(node), true) # TODO: handle master node disconnect
+      {:nodeup, node} ->
+        update_node_status(Atom.to_string(node), true)
+
+      # TODO: handle master node disconnect
+      {:nodedown, node} ->
+        update_node_status(Atom.to_string(node), true)
+
       other ->
         IO.puts("Undefined state of node monitor")
         IO.inspect(other)
@@ -37,13 +41,14 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
   end
 
   def update_node_status(node, alive) do
-    connect_to_node(node)
-    case Manager.Repo.get_by(Schema.Node, identifier: node) do
-      nil  -> %Schema.Node{identifier: node}
+    # connect_to_node(node)
+
+    case Repo.get_by(Schema.Node, identifier: node) do
+      nil -> %Schema.Node{identifier: node}
       object -> object
     end
-    |> Schema.Node.changeset(%{alive: alive, updated_at: DateTime.utc_now})
-    |> Manager.Repo.insert_or_update
+    |> Schema.Node.changeset(%{alive: alive, updated_at: DateTime.utc_now()})
+    |> Repo.insert_or_update()
   end
 
   defp connect_to_node(name) do

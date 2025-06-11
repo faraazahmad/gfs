@@ -1,24 +1,21 @@
 defmodule Gfs.ChunkServer.App do
-  use Application
-  use GenServer
+  use Supervisor
 
-  @impl true
-  def init(arg) do
-    {:ok, arg}
+  def start_link(init_arg) do
+    IO.puts("Starting GFS ChunkServer Application")
+    Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end
 
   @impl true
-  def start(_type, _args) do
-    # nodes = Application.fetch_env!(:gfs, :nodes)
-    # Enum.each(nodes, fn node -> connect_to_node(node) end)
-
+  def init(_args) do
     children = [
       Gfs.ChunkServer.Repo,
+      Gfs.ChunkServer.Genserver,
       {Bandit, plug: Gfs.ChunkServer.RestApi, scheme: :http, port: get_free_port()},
-      # Gfs.Task.MonitorNodes
+      Gfs.ChunkServer.Task.MonitorNodes
     ]
-    IO.puts "Starting GFS ChunkServer Application"
-    Supervisor.start_link(children, strategy: :one_for_one)
+
+    Supervisor.init(children, strategy: :one_for_one)
   end
 
   def get_free_port do
