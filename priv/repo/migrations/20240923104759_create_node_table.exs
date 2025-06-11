@@ -1,4 +1,4 @@
-defmodule Gfs.Manager.Repo.Migrations.CreateNodeTable do
+defmodule Gfs.Repo.Migrations.CreateNodeTable do
   use Ecto.Migration
 
   def change do

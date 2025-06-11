@@ -1,4 +1,4 @@
-defmodule Gfs.Manager.Repo.Migrations.AddNodeIdToChunkServer do
+defmodule Gfs.Repo.Migrations.AddNodeIdToChunkServer do
   use Ecto.Migration
 
   def change do

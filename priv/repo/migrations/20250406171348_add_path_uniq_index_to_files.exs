@@ -1,4 +1,4 @@
-defmodule Gfs.Manager.Repo.Migrations.AddPathUniqIndexToFiles do
+defmodule Gfs.Repo.Migrations.AddPathUniqIndexToFiles do
   use Ecto.Migration
 
   def change do

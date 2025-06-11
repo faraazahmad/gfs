@@ -1,4 +1,4 @@
-defmodule Gfs.Manager.Repo.Migrations.CreateChunk do
+defmodule Gfs.Repo.Migrations.CreateChunk do
   use Ecto.Migration
 
   def change do

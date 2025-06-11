@@ -1,4 +1,4 @@
-defmodule Gfs.Manager.Repo.Migrations.SetIdentSecKey do
+defmodule Gfs.Repo.Migrations.SetIdentSecKey do
   use Ecto.Migration
 
   def change do
