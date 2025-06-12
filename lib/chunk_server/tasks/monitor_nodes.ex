@@ -34,6 +34,14 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
       {:nodedown, node} ->
         update_node_status(Atom.to_string(node), true)
 
+        is_node_manager =
+          Repo.get_by(Schema.Node, identifier: Atom.to_string(node), role: "manager")
+
+        if is_node_manager do
+          IO.puts("Connection to manager node lost. Shutting down...")
+          exit("Connection to manager node lost.")
+        end
+
       other ->
         IO.puts("Undefined state of node monitor")
         IO.inspect(other)
@@ -52,7 +60,7 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
   defp connect_to_node(name) do
     IO.puts("Attempting connection to registered node: #{name}")
 
-    case Node.connect(name) do
+    case Node.connect(String.to_atom(name)) do
       true -> IO.puts("Connected to node #{name}")
       false -> IO.puts("Unable to connect to node #{name}")
       :ignored -> IO.puts("Node #{name} is offline")
