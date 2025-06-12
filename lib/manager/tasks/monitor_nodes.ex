@@ -2,7 +2,7 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   use Task, restart: :permanent
 
   alias Gfs.Schema
-  alias Gfs.Manager
+  alias Gfs.Manager.Repo
 
   def start_link(_) do
     Task.start_link(__MODULE__, :monitor, [])
@@ -12,7 +12,7 @@ defmodule Gfs.Manager.Task.MonitorNodes do
     connected_nodes = Enum.map(Node.list(), fn node -> node end)
 
     registered_nodes =
-      Enum.map(Manager.Repo.all(Schema.Node), fn node -> String.to_atom(node.identifier) end)
+      Enum.map(Repo.all(Schema.Node), fn node -> String.to_atom(node.identifier) end)
 
     Enum.concat(connected_nodes, registered_nodes)
     |> MapSet.new()
@@ -20,18 +20,35 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   end
 
   def update_node_status(node, alive) do
-    case Manager.Repo.get_by(Schema.Node, identifier: node) do
-      nil -> %Schema.Node{identifier: node}
-      object -> object
+    IO.puts("Updating node status for node: #{node}, connection: #{alive}")
+
+    result =
+      case Repo.get_by(Schema.Node, identifier: node) do
+        nil -> %Schema.Node{identifier: node}
+        object -> object
+      end
+      |> Schema.Node.changeset(%{
+        role: "chunkserver",
+        alive: alive
+      })
+      |> Repo.insert_or_update()
+
+    case result do
+      {:ok, node_record} ->
+        IO.puts("Successfully updated node status for #{node}")
+        {:ok, node_record}
+
+      {:error, changeset} ->
+        IO.puts("Failed to update node status for #{node}")
+        IO.inspect(changeset.errors)
+        {:error, changeset}
     end
-    |> Schema.Node.changeset(%{alive: alive, updated_at: DateTime.utc_now()})
-    |> Manager.Repo.insert_or_update()
   end
 
   def monitor do
     # try connecting to all known nodes
-    registered_nodes = Gfs.Manager.Repo.all(Schema.Node)
-    Enum.each(registered_nodes, fn node -> connect_to_node(node) end)
+    registered_nodes = Repo.all(Schema.Node)
+    Enum.each(registered_nodes, fn node -> connect_to_node(node.identifier) end)
 
     # Update all nodes' status when bringing up app
     Enum.each(all_nodes(), fn node ->
@@ -64,7 +81,7 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   defp connect_to_node(name) do
     IO.puts("Attempting connection to registered node: #{name}")
 
-    case Node.connect(name) do
+    case Node.connect(String.to_atom(name)) do
       true -> IO.puts("Connected to node #{name}")
       false -> IO.puts("Unable to connect to node #{name}")
       :ignored -> IO.puts("Node #{name} is offline")
