@@ -3,14 +3,13 @@ defmodule Gfs.Schema.File do
   import Ecto.Changeset
 
   schema "file" do
-    field :path, :string
-    has_many :chunks, Gfs.Schema.Chunk
+    field(:path, :string)
+    has_many(:chunks, Gfs.Schema.Chunk)
 
-    field :inserted_at, :utc_datetime
-    field :updated_at, :utc_datetime
+    timestamps(type: :utc_datetime_usec)
   end
 
- def changeset(node, params \\ %{}) do
+  def changeset(node, params \\ %{}) do
     node
     |> cast(params, [:path, :inserted_at, :updated_at])
     |> validate_required([:path, :inserted_at, :updated_at])
