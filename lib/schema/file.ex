@@ -9,8 +9,8 @@ defmodule Gfs.Schema.File do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def changeset(node, params \\ %{}) do
-    node
+  def changeset(file, params \\ %{}) do
+    file
     |> cast(params, [:path, :inserted_at, :updated_at])
     |> validate_required([:path, :inserted_at, :updated_at])
   end

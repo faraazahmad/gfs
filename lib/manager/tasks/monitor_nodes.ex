@@ -40,8 +40,22 @@ defmodule Gfs.Manager.Task.MonitorNodes do
 
       {:error, changeset} ->
         IO.puts("Failed to update node status for #{node}")
-        IO.inspect(changeset.errors)
-        {:error, changeset}
+        {:error, changeset.errors}
+    end
+  end
+
+  def upsert_chunk_server(node_record_id) do
+    case Repo.get_by(Schema.ChunkServer, node_id: node_record_id) do
+      nil ->
+        Repo.insert!(%Schema.ChunkServer{
+          node_id: node_record_id,
+          uniq_id: ExULID.ULID.generate()
+        })
+
+        IO.puts("Created chunk server for node_id #{node_record_id}")
+
+      chunk_server ->
+        {:ok, chunk_server}
     end
   end
 
@@ -69,8 +83,16 @@ defmodule Gfs.Manager.Task.MonitorNodes do
         update_node_status(Atom.to_string(node), false)
 
       {:nodeup, node} ->
-        update_node_status(Atom.to_string(node), true)
         GenServer.cast({:chunkserver, node}, {:manager_connect, Node.self()})
+
+        case update_node_status(Atom.to_string(node), true) do
+          {:ok, node_record} ->
+            upsert_chunk_server(node_record.id)
+
+          {:error, errors} ->
+            IO.puts(errors)
+            nil
+        end
 
       other ->
         IO.puts("Undefined state of node monitor")

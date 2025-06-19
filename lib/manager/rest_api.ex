@@ -55,16 +55,16 @@ defmodule Gfs.Manager.RestApi do
       end
 
     Enum.each(chunk_servers, fn cs ->
-      Gfs.Manager.Repo.insert(
-        Gfs.Schema.Chunk.changeset(%{
-          chunk_server_id: cs.id,
-          file_id: file.id,
-          start_byte: 0,
-          end_byte: 0,
-          uniq_id: ExULID.ULID.generate(),
-          version: 0
-        })
-      )
+      IO.puts(cs.id)
+
+      Gfs.Manager.Repo.insert!(%Gfs.Schema.Chunk{
+        chunk_server_id: cs.id,
+        file_id: file.id,
+        start_byte: 0,
+        end_byte: 0,
+        uniq_id: ExULID.ULID.generate(),
+        version: 0
+      })
     end)
 
     send_resp(conn, 200, "OK")
