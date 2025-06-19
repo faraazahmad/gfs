@@ -48,7 +48,7 @@ defmodule Gfs.Manager.RestApi do
     file =
       case Gfs.Manager.Repo.get_by(Gfs.Schema.File, path: file_path) do
         nil ->
-          Gfs.Manager.Repo.insert(%Gfs.Schema.File{path: file_path})
+          Gfs.Manager.Repo.insert!(%Gfs.Schema.File{path: file_path})
 
         found_file ->
           found_file
@@ -67,7 +67,8 @@ defmodule Gfs.Manager.RestApi do
       })
     end)
 
-    send_resp(conn, 200, "OK")
+    chunk_server_uniq_ids = Enum.map(chunk_servers, fn cs -> cs.uniq_id end)
+    send_resp(conn, 200, Jason.encode!(chunk_server_uniq_ids))
   end
 
   post "/file/:encoded_file_path" do
