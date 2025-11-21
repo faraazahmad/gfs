@@ -21,7 +21,8 @@ defmodule Gfs.Manager.RestApi do
   end
 
   get "/chunk_servers" do
-    chunk_servers = Gfs.Manager.Repo.all(Gfs.Schema.Node)
+    chunk_servers =
+      Gfs.Manager.Repo.all(Gfs.Schema.ChunkServer)
 
     conn
     |> put_resp_content_type("application/json")

@@ -2,6 +2,7 @@ defmodule Gfs.Schema.ChunkServer do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @derive {Jason.Encoder, only: [:uniq_id, :inserted_at, :updated_at, :node_id]}
   schema "chunk_server" do
     field(:uniq_id, :string)
     timestamps(type: :utc_datetime_usec)
