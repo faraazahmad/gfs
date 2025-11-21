@@ -29,6 +29,17 @@ defmodule Gfs.Manager.RestApi do
     |> send_resp(200, Jason.encode!(chunk_servers))
   end
 
+  get "/node/:id" do
+    node_id = conn.params["id"]
+
+    node =
+      Gfs.Manager.Repo.get(Gfs.Schema.Node, node_id)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, Jason.encode!(node))
+  end
+
   get "/files" do
     files = Gfs.Manager.Repo.all(Gfs.Schema.File)
 
