@@ -1,5 +1,4 @@
 defmodule Gfs.Manager.RestApi do
-  alias Bandit.WebSocket.Frame.Binary
   use Plug.Router
   import Ecto.Query
 

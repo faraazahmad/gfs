@@ -19,16 +19,22 @@ defmodule Gfs.Manager.Task.MonitorNodes do
     |> MapSet.to_list()
   end
 
-  def update_node_status(node, alive) do
+  def update_node_status(_node, true, nil) do
+    {:error, "http server port not provided for alive node"}
+  end
+
+  def update_node_status(node, alive, http_server_port) do
     IO.puts("Updating node status for node: #{node}, connection: #{alive}")
+    node_str = Atom.to_string(node)
 
     result =
-      case Repo.get_by(Schema.Node, identifier: node) do
-        nil -> %Schema.Node{identifier: node}
+      case Repo.get_by(Schema.Node, identifier: node_str) do
+        nil -> %Schema.Node{identifier: node_str}
         object -> object
       end
       |> Schema.Node.changeset(%{
         role: "chunkserver",
+        http_port: http_server_port,
         alive: alive
       })
       |> Repo.insert_or_update()
@@ -60,32 +66,21 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   end
 
   def monitor do
-    # try connecting to all known nodes
     registered_nodes = Repo.all(Schema.Node)
+    # Try connecting to all known nodes, :nodeup monitor will handle updating node status
     Enum.each(registered_nodes, fn node -> connect_to_node(node.identifier) end)
-
-    # Update all nodes' status when bringing up app
-    Enum.each(all_nodes(), fn node ->
-      node_alive =
-        case Node.ping(node) do
-          :pong -> true
-          _ -> false
-        end
-
-      update_node_status(Atom.to_string(node), node_alive)
-    end)
 
     # Start monitor for all nodes' connections
     :net_kernel.monitor_nodes(true)
 
     receive do
       {:nodedown, node} ->
-        update_node_status(Atom.to_string(node), false)
+        update_node_status(node, false, nil)
 
       {:nodeup, node} ->
-        GenServer.cast({:chunkserver, node}, {:manager_connect, Node.self()})
+        http_server_port = GenServer.call({:chunkserver, node}, :manager_connect)
 
-        case update_node_status(Atom.to_string(node), true) do
+        case update_node_status(node, true, http_server_port) do
           {:ok, node_record} ->
             upsert_chunk_server(node_record.id)
 
