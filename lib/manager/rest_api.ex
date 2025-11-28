@@ -83,6 +83,7 @@ defmodule Gfs.Manager.RestApi do
   end
 
   post "/file/:encoded_file_path" do
+    # Get all chunkservers on alive nodes
     cs_query =
       from(cs in Gfs.Schema.ChunkServer,
         join: n in Gfs.Schema.Node,
@@ -101,7 +102,7 @@ defmodule Gfs.Manager.RestApi do
     encoded_file_path = conn.params["encoded_file_path"]
 
     file_path =
-      case Base.decode64(encoded_file_path) do
+      case Base.decode16(encoded_file_path) do
         {:ok, charlist} ->
           to_string(charlist)
 
@@ -121,8 +122,14 @@ defmodule Gfs.Manager.RestApi do
   end
 
   get "/file/:encoded_file_path/:chunk_id/chunkservers" do
-    params = conn.query_params
-    file_path = :base64.decode_to_string(encoded_file_path)
+    encoded_file_path = conn.params["encoded_file_path"]
+    encoded_chunk_id = conn.params["chunk_id"]
+
+    file_path = Base.decode16!(encoded_file_path)
+    chunk_id = Base.decode16!(encoded_chunk_id)
+    IO.puts("#{chunk_id}")
+    [_path, byte_range | _] = String.split(chunk_id, ":", [])
+    [start_byte, end_byte | _] = String.split(byte_range, ",", [])
     file = Gfs.Manager.Repo.get_by(Gfs.Schema.File, path: file_path)
 
     if not is_nil(file) do
@@ -130,8 +137,8 @@ defmodule Gfs.Manager.RestApi do
         from(chunk in Gfs.Schema.Chunk,
           where:
             chunk.file_id == ^file.id and
-              chunk.start_byte == ^params["start_byte"] and
-              chunk.end_byte == ^params["end_byte"],
+              chunk.start_byte == ^start_byte and
+              chunk.end_byte == ^end_byte,
           select: chunk.id
         )
 
@@ -161,7 +168,7 @@ defmodule Gfs.Manager.RestApi do
       result =
         Gfs.Manager.Repo.insert(%Gfs.Schema.File{
           path: file_path,
-          updated_at: DateTime.truncate(DateTime.utc_now(), :second)
+          updated_at: DateTime.truncate(DateTime.utc_now(), :microsecond)
         })
 
       case result do
@@ -179,34 +186,6 @@ defmodule Gfs.Manager.RestApi do
       # Given @replication_limit: Get available chunk servers and create chunk entries
       chunkservers = Gfs.Manager.Repo.all(cs_query)
       send_resp(conn, 200, Jason.encode!(chunkservers))
-    end
-  end
-
-  post "/file/chunk" do
-    IO.puts("started POST file chunk")
-    # Get following data from req body: content, start_byte, end_byte
-    # case read_body(conn, length: 70 * 1024 * 1024, read_timeout: 30_000) do
-    #   {:ok, _body, conn} -> send_resp(conn, 200, "OK")
-    #   {:error, error } -> IO.puts(error)
-    #   _ -> send_resp(conn, 200, "ok")
-    # end
-
-    case Plug.Conn.read_body(conn, length: 70 * 1024 * 1024) do
-      {:ok, body, conn} ->
-        # Process the body
-        IO.inspect(body)
-        send_resp(conn, 200, "ok")
-
-      {:more, chunk, conn} ->
-        # Process the chunk and continue reading
-        IO.inspect(chunk)
-        send_resp(conn, 200, "ok")
-
-      # Continue reading the rest of the body
-
-      {:error, reason} ->
-        # Handle the error
-        IO.inspect(reason)
     end
   end
 
