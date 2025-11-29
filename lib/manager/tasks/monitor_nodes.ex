@@ -51,24 +51,33 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   end
 
   def upsert_chunk_server(node_record_id) do
-    case Repo.get_by(Schema.ChunkServer, node_id: node_record_id) do
-      nil ->
-        Repo.insert!(%Schema.ChunkServer{
-          node_id: node_record_id,
-          uniq_id: ExULID.ULID.generate()
-        })
+    chunk_server =
+      case Repo.get_by(Schema.ChunkServer, node_id: node_record_id) do
+        nil ->
+          IO.puts("Creating chunk server for node_id #{node_record_id}")
 
-        IO.puts("Created chunk server for node_id #{node_record_id}")
+          Repo.insert!(%Schema.ChunkServer{
+            node_id: node_record_id,
+            uniq_id: ExULID.ULID.generate()
+          })
 
-      chunk_server ->
-        {:ok, chunk_server}
-    end
+        server_record ->
+          IO.puts("ChunkServer already exists for node #{node_record_id}")
+          server_record
+      end
+
+    {:ok, chunk_server}
+  end
+
+  def connect_to_known_nodes do
+    Repo.all(Schema.Node)
+    |> Enum.map(fn node -> connect_to_node(node) end)
+    |> Enum.each(fn node -> upsert_chunk_server(node.id) end)
   end
 
   def monitor do
-    registered_nodes = Repo.all(Schema.Node)
-    # Try connecting to all known nodes, :nodeup monitor will handle updating node status
-    Enum.each(registered_nodes, fn node -> connect_to_node(node.identifier) end)
+    # Connect to already registerd nodes in the background
+    spawn(fn -> connect_to_known_nodes() end)
 
     # Start monitor for all nodes' connections
     :net_kernel.monitor_nodes(true)
@@ -95,13 +104,16 @@ defmodule Gfs.Manager.Task.MonitorNodes do
     end
   end
 
-  defp connect_to_node(name) do
-    IO.puts("Attempting connection to registered node: #{name}")
+  defp connect_to_node(node) do
+    node_identifier = node.identifier
+    IO.puts("Attempting connection to registered node: #{node_identifier}")
 
-    case Node.connect(String.to_atom(name)) do
-      true -> IO.puts("Connected to node #{name}")
-      false -> IO.puts("Unable to connect to node #{name}")
-      :ignored -> IO.puts("Node #{name} is offline")
+    case Node.connect(String.to_atom(node_identifier)) do
+      true -> IO.puts("Connected to node #{node_identifier}")
+      false -> IO.puts("Unable to connect to node #{node_identifier}")
+      :ignored -> IO.puts("Node #{node_identifier} is offline")
     end
+
+    node
   end
 end
