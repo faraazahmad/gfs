@@ -2,6 +2,7 @@ defmodule Gfs.Schema.File do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @derive {Jason.Encoder, only: [:path, :inserted_at, :updated_at]}
   schema "file" do
     field(:path, :string)
     has_many(:chunks, Gfs.Schema.Chunk)

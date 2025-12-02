@@ -1,5 +1,7 @@
 defmodule Gfs.Manager.RestApi do
   use Plug.Router
+  alias Gfs.Manager.Repo
+  alias Gfs.Schema
   import Ecto.Query
 
   plug(Plug.Logger)
@@ -113,12 +115,80 @@ defmodule Gfs.Manager.RestApi do
     handle_file_creation(conn, file_path, chunk_servers)
   end
 
-  get "/file/:file_name/chunks" do
-    file_name = conn.params.file_name
-    file = Gfs.Manager.Repo.get_by(Gfs.Schema.File, name: file_name)
+  get "/file/:encoded_file_path/chunks" do
+    encoded_file_path = conn.params["encoded_file_path"]
+
+    file_path =
+      case Base.decode16(encoded_file_path) do
+        {:ok, charlist} ->
+          to_string(charlist)
+
+        _ ->
+          ""
+      end
+
+    file = Gfs.Manager.Repo.get_by(Gfs.Schema.File, path: file_path)
     query = from(chunk in Gfs.Schema.Chunk, where: chunk.file_id == ^file.id)
     chunks = Gfs.Manager.Repo.all(query)
     send_resp(conn, 200, Jason.encode!(chunks))
+  end
+
+  def create_new_file_chunk(conn, file_record) do
+    start_byte =
+      case Gfs.Manager.Repo.get(
+             from(chunk in Gfs.Schema.Chunk,
+               order_by: [desc: chunk.start_byte],
+               limit: 1
+             )
+           ) do
+        nil ->
+          0
+
+        chunk ->
+          chunk.end_byte + 1
+      end
+
+    case Gfs.Manager.Repo.insert(%Gfs.Schema.Chunk{
+           file_id: file_record.id,
+           start_byte: start_byte,
+           end_byte: start_byte
+         }) do
+      {:ok, chunk} ->
+        send_resp(conn, 200, Jason.encode!(chunk))
+
+      {:error, error} ->
+        send_resp(conn, 500, Jason.encode!(error.reason))
+    end
+  end
+
+  post "/file/:encoded_file_path/chunk" do
+    encoded_file_path = conn.params["encoded_file_path"]
+    file_path = Base.decode16(encoded_file_path)
+
+    file =
+      case Repo.get_by(Schema.File, path: file_path) do
+        nil -> %Schema.File{path: file_path}
+        object -> object
+      end
+      |> Schema.File.changeset(%{})
+      |> Repo.insert_or_update()
+
+    create_new_file_chunk(conn, file)
+  end
+
+  get "/file/:encoded_file_path/chunks/last" do
+    encoded_file_path = conn.params["encoded_file_path"]
+
+    case Base.decode16(encoded_file_path) do
+      {:ok, charlist} ->
+        file_path = to_string(charlist)
+        file_record = Gfs.Manager.Repo.get_by(Gfs.Schema.File, path: file_path)
+        last_chunk = Gfs.Manager.Repo.get_by(Gfs.Schema.Chunk, file_id: file_record.id)
+        send_resp(conn, 200, Jason.encode!(last_chunk))
+
+      _ ->
+        send_resp(conn, 404, nil)
+    end
   end
 
   get "/file/:encoded_file_path/:chunk_id/chunkservers" do
