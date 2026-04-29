@@ -11,18 +11,27 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
   end
 
   def monitor do
-    # Search for master node in repo and connect to it
-    master_node =
+    # Search for manager node in repo and connect to it
+    manager_node =
       Gfs.Schema.Node
       |> where(role: "manager")
       |> Repo.one()
 
-    # if master node is found, connect to it
-    if master_node do
-      connect_to_node(master_node.identifier)
+    # if manager node is found, connect to it
+    cond do
+      manager_node ->
+        connect_to_node(manager_node.identifier)
+
+      # Fallback for fresh DBs (e.g. local debug cluster): use the
+      # GFS_MANAGER_NODE env var to bootstrap the connection.
+      env_manager = System.get_env("GFS_MANAGER_NODE") ->
+        connect_to_node(env_manager)
+
+      true ->
+        :ok
     end
 
-    # else, start monitoring for nodes and save node to Repo if found to be master
+    # else, start monitoring for nodes and save node to Repo if found to be manager
     # Start monitor for all nodes' connections
     :net_kernel.monitor_nodes(true)
 
@@ -30,7 +39,7 @@ defmodule Gfs.ChunkServer.Task.MonitorNodes do
       {:nodeup, node} ->
         update_node_status(Atom.to_string(node), true)
 
-      # TODO: handle master node disconnect
+      # TODO: handle manager node disconnect
       {:nodedown, node} ->
         update_node_status(Atom.to_string(node), true)
 

@@ -38,3 +38,18 @@ Where:
 * `<shortname>` is any name you want to give to the node
 * `<COOKIE>` is string to be used as cookie. It needs to be the same between 2 nodes for them to find and connect with
 each other.
+
+## Debug cluster (1 manager + 3 chunkservers)
+
+To bring up a local debug cluster of 1 manager and 3 chunkservers, each in its
+own `iex` session split across 4 tmux panes, run:
+
+```bash
+make debug          # start (or restart) the debug session
+make debug-stop     # kill the debug session
+make debug-clean    # wipe per-node SQLite DBs and start fresh
+```
+
+This requires [tmux](https://github.com/tmux/tmux). Each chunkserver gets its
+own SQLite file under `~/.gfs/database/debug/` (overridable via
+`GFS_DB_ROOT`). The cookie defaults to `gfsdev` (override with `GFS_COOKIE`).
