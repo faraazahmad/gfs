@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Launch a local GFS debug cluster in a tmux session with 4 panes:
-#   pane 0: manager  (sname: alice)
+#   pane 0: manager  (sname: fatemah)
 #   pane 1: chunkserver (sname: bob)
 #   pane 2: chunkserver (sname: charlie)
 #   pane 3: chunkserver (sname: david)
@@ -27,10 +27,10 @@ SESSION="${GFS_SESSION:-gfs-debug}"
 COOKIE="${GFS_COOKIE:-gfsdev}"
 DB_ROOT="${GFS_DB_ROOT:-$HOME/.gfs/database/debug}"
 
-# Erlang's `--sname alice` registers as alice@<short-hostname>, so each
+# Erlang's `--sname fatemah` registers as fatemah@<short-hostname>, so each
 # chunkserver needs the manager's full short-name to dial in.
 HOST_SHORT="$(hostname -s)"
-MANAGER_NODE="alice@$HOST_SHORT"
+MANAGER_NODE="fatemah@$HOST_SHORT"
 
 if [[ "${1:-}" == "stop" ]]; then
   tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -83,7 +83,7 @@ tmux setw -t "$SESSION:0" remain-on-exit on
 
 manager_cmd() {
   echo "GFS_MANAGER_DB_PATH=$DB_ROOT/manager.db \
-iex --cookie $COOKIE --sname alice -S mix run --no-halt -- manager"
+iex --cookie $COOKIE --sname fatemah -S mix run --no-halt -- manager"
 }
 
 chunk_cmd() {

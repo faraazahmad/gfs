@@ -14,5 +14,6 @@ defmodule Gfs.Schema.File do
     file
     |> cast(params, [:path, :inserted_at, :updated_at])
     |> validate_required([:path, :inserted_at, :updated_at])
+    |> unique_constraint([:path])
   end
 end

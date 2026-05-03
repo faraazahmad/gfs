@@ -35,7 +35,8 @@ defmodule Gfs.MixProject do
       {:ecto_sqlite3, "~> 0.17.2"},
       {:bandit, "~> 1.5"},
       {:ex_ulid, "~> 0.1.0"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:httpoison, "~> 2.2"}
     ]
   end
 end

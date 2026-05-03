@@ -2,6 +2,17 @@ defmodule Gfs.Schema.Chunk do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @derive {Jason.Encoder,
+           only: [
+             :uniq_id,
+             :version,
+             :start_byte,
+             :end_byte,
+             :inserted_at,
+             :updated_at,
+             :file_id,
+             :chunk_server_id
+           ]}
   schema "chunk" do
     field(:uniq_id, :string)
     field(:version, :integer)

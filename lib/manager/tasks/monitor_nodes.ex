@@ -72,7 +72,39 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   def connect_to_known_nodes do
     Repo.all(Schema.Node)
     |> Enum.map(fn node -> connect_to_node(node) end)
-    |> Enum.each(fn node -> upsert_chunk_server(node.id) end)
+    |> Enum.each(fn node ->
+      # The chunk server picks a fresh ephemeral HTTP port on every boot,
+      # so the http_port stored from a previous run is almost certainly
+      # stale. If the BEAM connection is up, ask the chunkserver for its
+      # current port and update the DB. Otherwise leases would point at
+      # a dead port and clients would see :econnrefused.
+      refresh_node_http_port(node)
+      upsert_chunk_server(node.id)
+    end)
+  end
+
+  defp refresh_node_http_port(%Schema.Node{identifier: identifier} = node) do
+    node_atom = String.to_atom(identifier)
+
+    if node_atom in Node.list() do
+      try do
+        port = GenServer.call({:chunkserver, node_atom}, :manager_connect, 5_000)
+
+        case update_node_status(node_atom, true, port) do
+          {:ok, _} -> :ok
+          {:error, errors} -> IO.inspect(errors, label: "refresh_node_http_port: update failed")
+        end
+      catch
+        kind, reason ->
+          IO.puts(
+            "refresh_node_http_port: GenServer.call to #{identifier} failed: #{inspect({kind, reason})}"
+          )
+
+          update_node_status(node_atom, false, node.http_port)
+      end
+    else
+      update_node_status(node_atom, false, node.http_port)
+    end
   end
 
   def monitor do
