@@ -13,19 +13,18 @@ defmodule Gfs.MixProject do
 
   def nodes do
     [
-      :"alice@Syeds-MacBook-Pro.local",
-      :"bob@Syeds-MacBook-Pro.local",
-      :"charlie@Syeds-MacBook-Pro.local"
+      :"alice@pop-os",
+      :"bob@pop-os",
+      :"charlie@pop-os"
     ]
   end
 
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      env: [nodes: nodes()],
+      env: [nodes: nodes(), manager_node: :"alice@pop-os"],
       extra_applications: [:logger],
-      mod: {Gfs.Manager, []},
-      mod: {Gfs.ChunkServer, []}
+      mod: {Gfs.App, []}
     ]
   end
 
@@ -34,6 +33,10 @@ defmodule Gfs.MixProject do
     [
       {:ecto, "~> 3.12"},
       {:ecto_sqlite3, "~> 0.17.2"},
+      {:bandit, "~> 1.5"},
+      {:ex_ulid, "~> 0.1.0"},
+      {:jason, "~> 1.4"},
+      {:httpoison, "~> 2.2"}
     ]
   end
 end

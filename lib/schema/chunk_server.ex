@@ -1,0 +1,20 @@
+defmodule Gfs.Schema.ChunkServer do
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @derive {Jason.Encoder, only: [:uniq_id, :role, :inserted_at, :updated_at, :node_id]}
+  schema "chunk_server" do
+    field(:uniq_id, :string)
+    field(:role, :string)
+    timestamps(type: :utc_datetime_usec)
+
+    has_many(:chunks, Gfs.Schema.Chunk)
+    belongs_to(:node, Gfs.Schema.Node)
+  end
+
+  def changeset(chunk_server, params \\ %{}) do
+    chunk_server
+    |> cast(params, [:uniq_id, :role, :node_id])
+    |> validate_required(params, [:uniq_id, :role, :node_id])
+  end
+end
