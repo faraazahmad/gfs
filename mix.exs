@@ -12,17 +12,13 @@ defmodule Gfs.MixProject do
   end
 
   def nodes do
-    [
-      :"alice@pop-os",
-      :"bob@pop-os",
-      :"charlie@pop-os"
-    ]
+    []
   end
 
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      env: [nodes: nodes(), manager_node: :"alice@pop-os"],
+      env: [nodes: nodes(), manager_node: nil],
       extra_applications: [:logger],
       mod: {Gfs.App, []}
     ]

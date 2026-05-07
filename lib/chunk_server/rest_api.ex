@@ -1,21 +1,32 @@
 defmodule Gfs.ChunkServer.RestApi do
+  @moduledoc """
+  External  HTTP edge for the chunkserver.
+
+  This route exists so non-BEAM clients  can still upload data 
+  over HTTP. Internally the data plane uses BEAM-native primitives
+  — `Gfs.ChunkServer.Data` does parallel `:erpc` replication to 
+  secondaries and an `:erpc` commit call back to the manager.
+
+  This Plug handler is intentionally thin: it
+  parses the request envelope, builds a lease struct, and hands off to
+  `Gfs.ChunkServer.Data`. There is no head-of-line blocking on a
+  single registered GenServer mailbox.
+  """
+
   use Plug.Router
 
-  # 64 MiB, matching Gfs.Client's piece size and the canonical GFS chunk size.
-  @chunk_size 64 * 1024 * 1024
-  @manager_base_url "http://localhost:4000"
-  @json_headers [{"Content-Type", "application/json"}]
+  # 64 MiB. We continue to accept base64-encoded JSON for backward
+  # compat with the existing `gfs_client`; raw binary upload is also
+  # supported for the eventual migration off base64.
+  @max_body_bytes 128 * 1024 * 1024
 
   plug(Plug.Logger)
 
-  # Append payloads are base64-encoded JSON bodies of up to one chunk
-  # (64 MiB raw -> ~86 MiB encoded), so we have to lift Plug's default
-  # 8 MB body limit.
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     json_decoder: Jason,
-    length: 128 * 1024 * 1024,
+    length: @max_body_bytes,
     read_length: 1_000_000,
     read_timeout: 30_000
   )
@@ -28,92 +39,44 @@ defmodule Gfs.ChunkServer.RestApi do
   end
 
   get "/chunk/:chunk_id" do
-    chunk_file_path = Path.expand("~/.gfs/chunk_server/chunks/#{chunk_id}")
-    file_content = case File.read(chunk_file_path) do
-      {:ok, content} -> content
-      {:error, error} -> error
-    end
+    case Gfs.ChunkServer.Data.read_chunk(chunk_id) do
+      {:ok, content} ->
+        conn
+        |> put_resp_content_type("application/octet-stream")
+        |> send_resp(200, content)
 
-    send_resp(conn, 200, Jason.encode!(file_content))
+      {:error, reason} ->
+        send_json(conn, 404, %{error: inspect(reason)})
+    end
   end
 
   put "/append/chunk/:chunk_id" do
-    lease_id = conn.body_params["lease_id"]
-    primary_id = conn.body_params["primary_chunk_server_id"]
-    secondaries = conn.body_params["secondaries"] || []
-    encoded_content = conn.body_params["content"]
+    body = conn.body_params
 
-    case Base.decode64(encoded_content || "") do
-      {:ok, payload} ->
-        {:ok, serial_no} = Gfs.ChunkServer.Genserver.next_serial(lease_id)
+    with {:ok, payload} <- decode_payload(body["content"]),
+         {:ok, lease} <- build_lease(chunk_id, body) do
+      case Gfs.ChunkServer.Data.append_primary(lease, payload) do
+        {:ok, %{serial_no: sn, bytes_appended: bytes}} ->
+          send_json(conn, 200, %{ok: true, serial_no: sn, bytes_appended: bytes})
 
-        with :ok <- append_local(chunk_id, payload),
-             :ok <- replicate_to_secondaries(chunk_id, payload, lease_id, serial_no, primary_id, secondaries),
-             :ok <- commit_to_manager(chunk_id, lease_id, byte_size(payload), primary_id) do
-          conn
-          |> put_resp_content_type("application/json")
-          |> send_resp(200, Jason.encode!(%{ok: true, serial_no: serial_no, bytes_appended: byte_size(payload)}))
-        else
-          {:error, :chunk_full} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(422, Jason.encode!(%{error: "chunk_full"}))
+        {:error, :chunk_full} ->
+          send_json(conn, 422, %{error: "chunk_full"})
 
-          {:error, :lease_expired} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(409, Jason.encode!(%{error: "lease_expired"}))
+        {:error, :lease_expired} ->
+          send_json(conn, 409, %{error: "lease_expired"})
 
-          {:error, {:replication_failed, reason}} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(502, Jason.encode!(%{error: "replication_failed", reason: inspect(reason)}))
+        {:error, {:replication_failed, reason}} ->
+          send_json(conn, 502, %{error: "replication_failed", reason: inspect(reason)})
 
-          {:error, {:commit_failed, reason}} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(502, Jason.encode!(%{error: "commit_failed", reason: inspect(reason)}))
+        {:error, {:commit_failed, reason}} ->
+          send_json(conn, 502, %{error: "commit_failed", reason: inspect(reason)})
 
-          {:error, reason} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(500, Jason.encode!(%{error: inspect(reason)}))
-        end
-
-      :error ->
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(400, Jason.encode!(%{error: "bad_content"}))
-    end
-  end
-
-  put "/replicate/chunk/:chunk_id" do
-    serial_no = conn.body_params["serial_no"]
-    encoded_content = conn.body_params["content"]
-
-    case Base.decode64(encoded_content || "") do
-      {:ok, payload} ->
-        case append_local(chunk_id, payload) do
-          :ok ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(200, Jason.encode!(%{ok: true, serial_no: serial_no}))
-
-          {:error, :chunk_full} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(422, Jason.encode!(%{error: "chunk_full"}))
-
-          {:error, reason} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> send_resp(500, Jason.encode!(%{error: inspect(reason)}))
-        end
-
-      :error ->
-        conn
-        |> put_resp_content_type("application/json")
-        |> send_resp(400, Jason.encode!(%{error: "bad_content"}))
+        {:error, reason} ->
+          send_json(conn, 500, %{error: inspect(reason)})
+      end
+    else
+      {:error, :bad_content} -> send_json(conn, 400, %{error: "bad_content"})
+      {:error, :bad_lease} -> send_json(conn, 400, %{error: "bad_lease"})
     end
   end
 
@@ -121,69 +84,81 @@ defmodule Gfs.ChunkServer.RestApi do
     send_resp(conn, 404, "not_found")
   end
 
-  defp chunk_path(chunk_id) do
-    Path.expand("~/.gfs/chunk_server/chunks/#{chunk_id}")
-  end
+  ## Helpers ##
 
-  defp append_local(chunk_id, payload) do
-    path = chunk_path(chunk_id)
-    File.mkdir_p!(Path.dirname(path))
+  defp decode_payload(nil), do: {:error, :bad_content}
 
-    current_size =
-      case File.stat(path) do
-        {:ok, %{size: size}} -> size
-        {:error, _} -> 0
-      end
-
-    if current_size + byte_size(payload) > @chunk_size do
-      {:error, :chunk_full}
-    else
-      File.write(path, payload, [:append, :binary])
+  defp decode_payload(content) when is_binary(content) do
+    case Base.decode64(content) do
+      {:ok, raw} -> {:ok, raw}
+      :error -> {:error, :bad_content}
     end
   end
 
-  defp replicate_to_secondaries(chunk_id, payload, lease_id, serial_no, primary_id, secondaries) do
-    body =
-      Jason.encode!(%{
+  defp decode_payload(_), do: {:error, :bad_content}
+
+  # Reconstruct an internal lease shape from the JSON envelope the
+  # client sent. The client previously got this back from
+  # `Gfs.Manager.Metadata.acquire_append_lease/1`, so we expect the
+  # same fields in stringified form.
+  defp build_lease(chunk_id, body) when is_map(body) do
+    with lease_id when is_binary(lease_id) <- body["lease_id"],
+         primary when is_map(primary) <- body["primary"] || default_primary(body),
+         secondaries <- body["secondaries"] || [],
+         manager_node when is_binary(manager_node) or is_atom(manager_node) <-
+           body["manager_node"] || default_manager_node() do
+      lease = %{
         lease_id: lease_id,
-        primary_chunk_server_id: primary_id,
-        serial_no: serial_no,
-        content: Base.encode64(payload)
-      })
+        chunk: %{
+          uniq_id: chunk_id,
+          version: body["chunk_version"] || 0
+        },
+        primary: normalize_replica(primary),
+        secondaries: Enum.map(secondaries, &normalize_replica/1),
+        manager_node: to_node(manager_node)
+      }
 
-    Enum.reduce_while(secondaries, :ok, fn s, _acc ->
-      port = Map.fetch!(s, "http_port")
-      host = Map.get(s, "host", "localhost")
-      url = "http://#{host}:#{port}/replicate/chunk/#{chunk_id}"
-
-      case HTTPoison.put(url, body, @json_headers) do
-        {:ok, %HTTPoison.Response{status_code: 200}} ->
-          {:cont, :ok}
-
-        {:ok, %HTTPoison.Response{status_code: status}} ->
-          {:halt, {:error, {:replication_failed, {:status, status}}}}
-
-        {:error, reason} ->
-          {:halt, {:error, {:replication_failed, reason}}}
-      end
-    end)
+      {:ok, lease}
+    else
+      _ -> {:error, :bad_lease}
+    end
   end
 
-  defp commit_to_manager(chunk_id, lease_id, bytes, primary_id) do
-    body =
-      Jason.encode!(%{
-        chunk_uniq_id: chunk_id,
-        bytes_appended: bytes,
-        primary_chunk_server_id: primary_id
-      })
+  defp build_lease(_, _), do: {:error, :bad_lease}
 
-    url = "#{@manager_base_url}/lease/#{lease_id}/commit"
-
-    case HTTPoison.post(url, body, @json_headers) do
-      {:ok, %HTTPoison.Response{status_code: 200}} -> :ok
-      {:ok, %HTTPoison.Response{status_code: 409}} -> {:error, :lease_expired}
-      {:ok, %HTTPoison.Response{status_code: status}} -> {:error, {:commit_failed, {:status, status}}}
-      {:error, reason} -> {:error, {:commit_failed, reason}}
+  # Older client versions only sent `primary_chunk_server_id`. Build a
+  # minimal primary record from that so commit still works.
+  defp default_primary(body) do
+    case body["primary_chunk_server_id"] do
+      nil -> nil
+      id -> %{"id" => id, "node" => Atom.to_string(node())}
     end
+  end
+
+  defp default_manager_node do
+    case Application.get_env(:gfs, :manager_node) do
+      nil -> nil
+      node -> node
+    end
+  end
+
+  defp normalize_replica(%{} = m) do
+    %{
+      id: m["id"] || m[:id],
+      uniq_id: m["uniq_id"] || m[:uniq_id],
+      node: to_node(m["node"] || m[:node] || m["identifier"] || m[:identifier]),
+      http_port: m["http_port"] || m[:http_port],
+      host: m["host"] || m[:host]
+    }
+  end
+
+  defp to_node(nil), do: nil
+  defp to_node(n) when is_atom(n), do: n
+  defp to_node(n) when is_binary(n), do: String.to_atom(n)
+
+  defp send_json(conn, status, body) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> send_resp(status, Jason.encode!(body))
   end
 end

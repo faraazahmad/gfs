@@ -1,151 +1,202 @@
 defmodule Gfs.Manager.Task.MonitorNodes do
-  use Task, restart: :permanent
+  @moduledoc """
+  Watches the cluster and keeps the manager's view of chunkservers in
+  sync.
 
-  alias Gfs.Schema
+  Two event sources:
+
+  1. `:net_kernel.monitor_nodes(true)` — node-level liveness.
+  2. `:pg.monitor(:gfs_chunkservers)` — chunkserver-process membership.
+
+  This runs as a real GenServer with a looping receive and is
+  the canonical place that flips `Gfs.Schema.Node.alive` and upserts
+  `Gfs.Schema.ChunkServer` rows.
+
+  Discovery is by `:pg` pid, addressing is `node()`, and metadata
+  comes from `Gfs.ChunkServer.Control.describe/1`.
+  """
+
+  use GenServer
+  require Logger
+
   alias Gfs.Manager.Repo
+  alias Gfs.Schema
 
-  def start_link(_) do
-    Task.start_link(__MODULE__, :monitor, [])
+  def start_link(_args) do
+    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  def all_nodes do
-    connected_nodes = Enum.map(Node.list(), fn node -> node end)
+  @impl true
+  def init(_args) do
+    :net_kernel.monitor_nodes(true)
+    {monitor_ref, current_members} = :pg.monitor(Gfs.ChunkServer.Control.pg_group())
 
-    registered_nodes =
-      Enum.map(Repo.all(Schema.Node), fn node -> String.to_atom(node.identifier) end)
+    # Bootstrap: connect to nodes we already know about, and hydrate
+    # state from any chunkservers already in :pg.
+    send(self(), :bootstrap_known_nodes)
+    Enum.each(current_members, &handle_chunkserver_join/1)
 
-    Enum.concat(connected_nodes, registered_nodes)
-    |> MapSet.new()
-    |> MapSet.to_list()
+    {:ok, %{pg_ref: monitor_ref, monitored: %{}}}
   end
 
-  def update_node_status(_node, true, nil) do
-    {:error, "http server port not provided for alive node"}
+  @impl true
+  def handle_info(:bootstrap_known_nodes, state) do
+    spawn(fn -> connect_to_known_nodes() end)
+    {:noreply, state}
   end
 
-  def update_node_status(node, alive, http_server_port) do
-    IO.puts("Updating node status for node: #{node}, connection: #{alive}")
+  @impl true
+  def handle_info({:nodeup, node}, state) do
+    IO.puts("MonitorNodes: nodeup #{node}")
+    # We don't flip `alive=true` here — that happens when the
+    # chunkserver actually shows up in the :pg group, which is the
+    # real signal that the chunkserver process is ready to serve.
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:nodedown, node}, state) do
+    IO.puts("MonitorNodes: nodedown #{node}")
+    mark_node_alive(node, false)
+    {:noreply, state}
+  end
+
+  # Chunkserver process joined :pg.
+  @impl true
+  def handle_info({_ref, :join, _group, pids}, state) do
+    new_monitored =
+      Enum.reduce(pids, state.monitored, fn pid, acc ->
+        case handle_chunkserver_join(pid) do
+          {:ok, ref} -> Map.put(acc, pid, ref)
+          :error -> acc
+        end
+      end)
+
+    {:noreply, %{state | monitored: new_monitored}}
+  end
+
+  # Chunkserver process left :pg.
+  @impl true
+  def handle_info({_ref, :leave, _group, pids}, state) do
+    new_monitored =
+      Enum.reduce(pids, state.monitored, fn pid, acc ->
+        case Map.pop(acc, pid) do
+          {nil, m} ->
+            m
+
+          {ref, m} ->
+            Process.demonitor(ref, [:flush])
+            mark_node_alive(node(pid), false)
+            m
+        end
+      end)
+
+    {:noreply, %{state | monitored: new_monitored}}
+  end
+
+  # A chunkserver pid we were monitoring went DOWN.
+  @impl true
+  def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
+    IO.puts("MonitorNodes: chunkserver #{inspect(pid)} DOWN (#{inspect(reason)})")
+    mark_node_alive(node(pid), false)
+    {:noreply, %{state | monitored: Map.delete(state.monitored, pid)}}
+  end
+
+  @impl true
+  def handle_info(other, state) do
+    IO.puts("MonitorNodes: ignoring #{inspect(other)}")
+    {:noreply, state}
+  end
+
+  ## Helpers ##
+
+  defp handle_chunkserver_join(pid) when is_pid(pid) do
+    case Gfs.ChunkServer.Control.describe(pid) do
+      {:ok, info} ->
+        ref = Process.monitor(pid)
+        upsert_node_and_chunkserver(info)
+        IO.puts("MonitorNodes: registered chunkserver #{info.uniq_id} on #{info.node}")
+        {:ok, ref}
+
+      {:error, reason} ->
+        IO.puts(
+          "MonitorNodes: failed to describe chunkserver #{inspect(pid)}: #{inspect(reason)}"
+        )
+
+        :error
+    end
+  end
+
+  defp upsert_node_and_chunkserver(%{node: node, uniq_id: cs_uniq_id} = info) do
     node_str = Atom.to_string(node)
+    # http_port is only used by the HTTP edge (`gfs_client` upload
+    # path); east-west traffic addresses chunkservers by `node()`.
+    http_port = Map.get(info, :http_port) || 0
 
-    result =
+    {:ok, node_record} =
       case Repo.get_by(Schema.Node, identifier: node_str) do
         nil -> %Schema.Node{identifier: node_str}
-        object -> object
+        existing -> existing
       end
       |> Schema.Node.changeset(%{
         role: "chunkserver",
-        http_port: http_server_port,
-        alive: alive
+        http_port: http_port,
+        alive: true
       })
       |> Repo.insert_or_update()
 
-    case result do
-      {:ok, node_record} ->
-        IO.puts("Successfully updated node status for #{node}")
-        {:ok, node_record}
+    case Repo.get_by(Schema.ChunkServer, uniq_id: cs_uniq_id) do
+      nil ->
+        Repo.insert!(%Schema.ChunkServer{
+          node_id: node_record.id,
+          uniq_id: cs_uniq_id,
+          role: "chunkserver"
+        })
 
-      {:error, changeset} ->
-        IO.puts("Failed to update node status for #{node}")
-        {:error, changeset.errors}
+      existing ->
+        # Re-bind to the (possibly new) node row in case the chunkserver
+        # moved hosts.
+        if existing.node_id != node_record.id do
+          existing
+          |> Ecto.Changeset.change(node_id: node_record.id)
+          |> Repo.update!()
+        else
+          existing
+        end
     end
   end
 
-  def upsert_chunk_server(node_record_id) do
-    chunk_server =
-      case Repo.get_by(Schema.ChunkServer, node_id: node_record_id) do
-        nil ->
-          IO.puts("Creating chunk server for node_id #{node_record_id}")
+  defp mark_node_alive(node, alive) do
+    node_str = Atom.to_string(node)
 
-          Repo.insert!(%Schema.ChunkServer{
-            node_id: node_record_id,
-            uniq_id: ExULID.ULID.generate()
-          })
+    case Repo.get_by(Schema.Node, identifier: node_str) do
+      nil ->
+        :ok
 
-        server_record ->
-          IO.puts("ChunkServer already exists for node #{node_record_id}")
-          server_record
-      end
+      record ->
+        record
+        |> Schema.Node.changeset(%{
+          role: record.role || "chunkserver",
+          http_port: record.http_port || 0,
+          alive: alive
+        })
+        |> Repo.insert_or_update()
 
-    {:ok, chunk_server}
+        :ok
+    end
   end
 
-  def connect_to_known_nodes do
+  defp connect_to_known_nodes do
     Repo.all(Schema.Node)
-    |> Enum.map(fn node -> connect_to_node(node) end)
     |> Enum.each(fn node ->
-      # The chunk server picks a fresh ephemeral HTTP port on every boot,
-      # so the http_port stored from a previous run is almost certainly
-      # stale. If the BEAM connection is up, ask the chunkserver for its
-      # current port and update the DB. Otherwise leases would point at
-      # a dead port and clients would see :econnrefused.
-      refresh_node_http_port(node)
-      upsert_chunk_server(node.id)
-    end)
-  end
+      identifier = node.identifier
+      IO.puts("MonitorNodes: bootstrap connect to #{identifier}")
 
-  defp refresh_node_http_port(%Schema.Node{identifier: identifier} = node) do
-    node_atom = String.to_atom(identifier)
-
-    if node_atom in Node.list() do
-      try do
-        port = GenServer.call({:chunkserver, node_atom}, :manager_connect, 5_000)
-
-        case update_node_status(node_atom, true, port) do
-          {:ok, _} -> :ok
-          {:error, errors} -> IO.inspect(errors, label: "refresh_node_http_port: update failed")
-        end
-      catch
-        kind, reason ->
-          IO.puts(
-            "refresh_node_http_port: GenServer.call to #{identifier} failed: #{inspect({kind, reason})}"
-          )
-
-          update_node_status(node_atom, false, node.http_port)
+      case Node.connect(String.to_atom(identifier)) do
+        true -> IO.puts("MonitorNodes: connected to #{identifier}")
+        false -> IO.puts("MonitorNodes: unable to connect to #{identifier}")
+        :ignored -> IO.puts("MonitorNodes: #{identifier} offline")
       end
-    else
-      update_node_status(node_atom, false, node.http_port)
-    end
-  end
-
-  def monitor do
-    # Connect to already registerd nodes in the background
-    spawn(fn -> connect_to_known_nodes() end)
-
-    # Start monitor for all nodes' connections
-    :net_kernel.monitor_nodes(true)
-
-    receive do
-      {:nodedown, node} ->
-        update_node_status(node, false, nil)
-
-      {:nodeup, node} ->
-        http_server_port = GenServer.call({:chunkserver, node}, :manager_connect)
-
-        case update_node_status(node, true, http_server_port) do
-          {:ok, node_record} ->
-            upsert_chunk_server(node_record.id)
-
-          {:error, errors} ->
-            IO.puts(errors)
-            nil
-        end
-
-      other ->
-        IO.puts("Undefined state of node monitor")
-        IO.inspect(other)
-    end
-  end
-
-  defp connect_to_node(node) do
-    node_identifier = node.identifier
-    IO.puts("Attempting connection to registered node: #{node_identifier}")
-
-    case Node.connect(String.to_atom(node_identifier)) do
-      true -> IO.puts("Connected to node #{node_identifier}")
-      false -> IO.puts("Unable to connect to node #{node_identifier}")
-      :ignored -> IO.puts("Node #{node_identifier} is offline")
-    end
-
-    node
+    end)
   end
 end

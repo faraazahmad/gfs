@@ -13,8 +13,17 @@ defmodule Gfs.ChunkServer.App do
     [http_server_port: port] = :ets.lookup(:port, :http_server_port)
 
     children = [
+      # `:pg` is the cluster registry used to discover chunkservers
+      # without going through SQL/HTTP-port lookups
+      %{
+        id: :pg,
+        start: {:pg, :start_link, []}
+      },
       Gfs.ChunkServer.Repo,
-      Gfs.ChunkServer.Genserver,
+      Gfs.ChunkServer.Serials,
+      Gfs.ChunkServer.Control,
+      # The chunkserver Bandit is kept so any HTTP-based client can still
+      # interact with the system.
       {Bandit, plug: Gfs.ChunkServer.RestApi, scheme: :http, port: port},
       Gfs.ChunkServer.Task.MonitorNodes
     ]
