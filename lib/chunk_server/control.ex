@@ -73,6 +73,19 @@ defmodule Gfs.ChunkServer.Control do
     list_pids() |> Enum.filter(fn pid -> node(pid) == node end)
   end
 
+  @doc """
+  Ask the chunkserver control process running on `target_node` to ensure
+  it is joined to the chunkserver `:pg` group.
+
+  Safe to call repeatedly.
+  """
+  @spec rejoin_pg(node()) :: :ok | {:error, term()}
+  def rejoin_pg(target_node) when is_atom(target_node) do
+    GenServer.call({:chunkserver, target_node}, :rejoin_pg, 5_000)
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
   ## Callbacks ##
 
   @impl true
@@ -82,6 +95,12 @@ defmodule Gfs.ChunkServer.Control do
 
     state = %{uniq_id: uniq_id, node: node(), http_port: lookup_http_port()}
     {:ok, state}
+  end
+
+  @impl true
+  def handle_call(:rejoin_pg, _from, state) do
+    :ok = :pg.join(@pg_group, self())
+    {:reply, :ok, state}
   end
 
   @impl true
