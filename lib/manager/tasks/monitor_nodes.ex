@@ -22,6 +22,9 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   alias Gfs.Manager.Repo
   alias Gfs.Schema
 
+  @rejoin_attempts 5
+  @rejoin_backoff_ms 500
+
   def start_link(_args) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
@@ -76,6 +79,11 @@ defmodule Gfs.Manager.Task.MonitorNodes do
   end
 
   # Chunkserver process left :pg.
+  #
+  # We do NOT mark the node down here — `:nodedown` is the only
+  # authoritative source for `alive=false`. If the underlying Erlang
+  # node is still up, the chunkserver process likely just crashed/restarted,
+  # so kick off a background task asking it to re-join `:pg`.
   @impl true
   def handle_info({_ref, :leave, _group, pids}, state) do
     new_monitored =
@@ -86,19 +94,23 @@ defmodule Gfs.Manager.Task.MonitorNodes do
 
           {ref, m} ->
             Process.demonitor(ref, [:flush])
-            mark_node_alive(node(pid), false)
             m
         end
       end)
 
+    pids
+    |> Enum.map(&node/1)
+    |> Enum.uniq()
+    |> Enum.each(&maybe_request_chunkserver_rejoin/1)
+
     {:noreply, %{state | monitored: new_monitored}}
   end
 
-  # A chunkserver pid we were monitoring went DOWN.
+  # A chunkserver pid we were monitoring went DOWN. Drop the monitor
+  # entry; node liveness is owned by `:nodedown`.
   @impl true
   def handle_info({:DOWN, _ref, :process, pid, reason}, state) do
     IO.puts("MonitorNodes: chunkserver #{inspect(pid)} DOWN (#{inspect(reason)})")
-    mark_node_alive(node(pid), false)
     {:noreply, %{state | monitored: Map.delete(state.monitored, pid)}}
   end
 
@@ -184,6 +196,40 @@ defmodule Gfs.Manager.Task.MonitorNodes do
 
         :ok
     end
+  end
+
+  defp maybe_request_chunkserver_rejoin(target_node) do
+    if node_alive?(target_node) do
+      spawn(fn -> request_chunkserver_rejoin(target_node, @rejoin_attempts) end)
+    end
+
+    :ok
+  end
+
+  defp request_chunkserver_rejoin(_target_node, 0), do: :ok
+
+  defp request_chunkserver_rejoin(target_node, attempts_left) do
+    if node_alive?(target_node) do
+      case Gfs.ChunkServer.Control.rejoin_pg(target_node) do
+        :ok ->
+          Logger.info("MonitorNodes: requested :pg rejoin from #{target_node}")
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "MonitorNodes: failed requesting :pg rejoin from #{target_node}: #{inspect(reason)}"
+          )
+
+          Process.sleep(@rejoin_backoff_ms)
+          request_chunkserver_rejoin(target_node, attempts_left - 1)
+      end
+    else
+      :ok
+    end
+  end
+
+  defp node_alive?(target_node) do
+    target_node == node() or target_node in Node.list() or Node.ping(target_node) == :pong
   end
 
   defp connect_to_known_nodes do
