@@ -3,12 +3,13 @@ defmodule Gfs.App do
 
   @impl true
   def start(type, args) do
+    runtime = Gfs.Runtime.production()
     case System.argv() do
       ["manager"] ->
-        Gfs.Manager.App.start(type, args)
+        Gfs.Manager.App.start(type, %{runtime: runtime})
 
       ["chunkserver"] ->
-        Gfs.ChunkServer.App.start_link(args)
+        Gfs.ChunkServer.App.start_link(args, runtime)
 
       _ ->
         IO.puts("Please specify either 'manager' or 'chunkserver' as an application.")

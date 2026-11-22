@@ -99,7 +99,7 @@ defmodule Gfs.ChunkServer.RestApi do
 
   # Reconstruct an internal lease shape from the JSON envelope the
   # client sent. The client previously got this back from
-  # `Gfs.Manager.Metadata.acquire_append_lease/1`, so we expect the
+  # `Gfs.Manager.Metadata.acquire_append_lease/2`, so we expect the
   # same fields in stringified form.
   defp build_lease(chunk_id, body) when is_map(body) do
     with lease_id when is_binary(lease_id) <- body["lease_id"],

@@ -17,7 +17,7 @@ defmodule Gfs.ChunkServer.Serials do
 
   @table :gfs_chunkserver_serials
 
-  def start_link(_args) do
+  def start_link(_runtime) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 

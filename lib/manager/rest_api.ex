@@ -21,6 +21,10 @@ defmodule Gfs.Manager.RestApi do
     json_decoder: Jason
   )
 
+  def call(conn, runtime) do
+    super(Plug.Conn.assign(conn, :runtime, runtime), runtime)
+  end
+
   plug(:match)
   plug(:dispatch)
 
@@ -62,7 +66,7 @@ defmodule Gfs.Manager.RestApi do
 
   get "/file/:encoded_file_path/lease" do
     with {:ok, file_path} <- decode_file_path(conn.params["encoded_file_path"]),
-         {:ok, response} <- Metadata.acquire_append_lease(file_path) do
+         {:ok, response} <- Metadata.acquire_append_lease(file_path, conn.assigns.runtime) do
       send_json(conn, 200, response)
     else
       :error -> send_json(conn, 400, %{error: "invalid_path"})
@@ -94,7 +98,7 @@ defmodule Gfs.Manager.RestApi do
     lease_id = conn.params["lease_id"]
     primary_id = conn.params["primary_chunk_server_id"]
 
-    case Metadata.renew_lease(lease_id, primary_id) do
+    case Metadata.renew_lease(lease_id, primary_id, conn.assigns.runtime) do
       {:ok, body} -> send_json(conn, 200, body)
       {:error, :lease_not_active} -> send_json(conn, 409, %{error: "lease_not_active"})
     end
@@ -106,7 +110,7 @@ defmodule Gfs.Manager.RestApi do
     bytes_appended = conn.params["bytes_appended"]
     primary_id = conn.params["primary_chunk_server_id"]
 
-    case Metadata.commit_append(lease_id, chunk_uniq_id, bytes_appended, primary_id) do
+    case Metadata.commit_append(lease_id, chunk_uniq_id, bytes_appended, primary_id, conn.assigns.runtime) do
       :ok -> send_json(conn, 200, %{ok: true})
       {:error, :lease_not_found} -> send_json(conn, 409, %{error: "lease_not_found"})
       {:error, :lease_expired} -> send_json(conn, 409, %{error: "lease_expired"})

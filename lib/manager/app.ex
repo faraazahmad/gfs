@@ -2,7 +2,7 @@ defmodule Gfs.Manager.App do
   use Application
 
   @impl true
-  def start(_type, _args) do
+  def start(_type, %{runtime: runtime}) do
     children = [
       # `:pg` scope used by chunkservers to register themselves so the
       # manager can discover them without SQL/HTTP-port lookups.
@@ -11,9 +11,9 @@ defmodule Gfs.Manager.App do
         start: {:pg, :start_link, []}
       },
       Gfs.Manager.Repo,
-      {Bandit, plug: Gfs.Manager.RestApi},
-      Gfs.Manager.Task.MonitorNodes,
-      Gfs.Manager.Task.ExpireLeases
+      {Bandit, plug: {Gfs.Manager.RestApi, runtime}},
+      {Gfs.Manager.Task.MonitorNodes, runtime},
+      {Gfs.Manager.Task.ExpireLeases, runtime}
     ]
 
     IO.puts("Starting GFS Manager Application")

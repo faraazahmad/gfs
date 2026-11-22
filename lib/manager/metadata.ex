@@ -168,7 +168,7 @@ defmodule Gfs.Manager.Metadata do
   Get an existing active lease for the file's last chunk, or issue a
   new one.
   """
-  @spec acquire_append_lease(binary()) ::
+  @spec acquire_append_lease(binary(), Gfs.Runtime.t()) ::
           {:ok, lease_response()}
           | {:error,
              :file_not_found
@@ -176,13 +176,13 @@ defmodule Gfs.Manager.Metadata do
              | :invalid_path
              | :conflict
              | :no_alive_replicas}
-  def acquire_append_lease(path) when is_binary(path) do
+  def acquire_append_lease(path, runtime) when is_binary(path) do
     with %Schema.File{} = file <- Repo.get_by(Schema.File, path: path) || :file_not_found,
          %Schema.Chunk{} = chunk <- last_chunk_for_file(file.id),
          replicas when length(replicas) >= @min_replicas_for_write <-
            alive_replicas(chunk.uniq_id) do
       maybe_warn_under_replicated(chunk.uniq_id, replicas)
-      get_or_issue_lease(%{file: file, chunk: chunk, replicas: replicas})
+      get_or_issue_lease(%{file: file, chunk: chunk, replicas: replicas}, runtime)
     else
       :file_not_found -> {:error, :file_not_found}
       :no_chunk -> {:error, :chunk_not_found}
@@ -191,11 +191,11 @@ defmodule Gfs.Manager.Metadata do
   end
 
   @doc "Renew an active lease."
-  @spec renew_lease(binary(), integer()) ::
+  @spec renew_lease(binary(), integer(), Gfs.Runtime.t()) ::
           {:ok, %{lease_id: binary(), expires_at: DateTime.t()}}
           | {:error, :lease_not_active}
-  def renew_lease(lease_id, primary_chunk_server_id) do
-    now = DateTime.utc_now()
+  def renew_lease(lease_id, primary_chunk_server_id, runtime) do
+    now = Gfs.Runtime.now(runtime)
     new_expires_at = DateTime.add(now, @lease_ttl_seconds, :second)
 
     {count, _} =
@@ -217,13 +217,26 @@ defmodule Gfs.Manager.Metadata do
   end
 
   @doc """
+  Remote definition for `commit_append/5`, called by chunkservers via `:erpc`
+
+  The runtime can't cross a remote call, so it's looked by manager-side.
+  (published by `Gfs.Manager.App.start/2`).
+  """
+  @spec commit_append_remote(binary(), binary(), non_neg_integer(), integer()) ::
+    :ok | {:error, :lease_not_found | :lease_expired}
+  def commit_append_remote(lease_id, chunk_uniq_id, bytes_appended, primary_chunk_server_id) do
+    runtime = :persistent_term.get({__MODULE__, :runtime}, nil)
+    commit_append(lease_id, chunk_uniq_id, bytes_appended, primary_chunk_server_id, runtime)
+  end
+
+  @doc """
   Commit an append: extend `chunk.end_byte` by `bytes_appended` and
   bump the file's `updated_at`.
   """
-  @spec commit_append(binary(), binary(), non_neg_integer(), integer()) ::
+  @spec commit_append(binary(), binary(), non_neg_integer(), integer(), Gfs.Runtime.t()) ::
           :ok | {:error, :lease_not_found | :lease_expired}
-  def commit_append(lease_id, chunk_uniq_id, bytes_appended, primary_chunk_server_id) do
-    now = DateTime.utc_now()
+  def commit_append(lease_id, chunk_uniq_id, bytes_appended, primary_chunk_server_id, runtime) do
+    now = Gfs.Runtime.now(runtime)
 
     lease =
       Repo.one(
@@ -330,7 +343,7 @@ defmodule Gfs.Manager.Metadata do
 
   ## Internal: lease lifecycle ##
 
-  defp last_chunk_for_file(file_id) do
+  def last_chunk_for_file(file_id) do
     query =
       from(c in Schema.Chunk,
         where: c.file_id == ^file_id,
@@ -369,14 +382,14 @@ defmodule Gfs.Manager.Metadata do
     :ok
   end
 
-  defp get_or_issue_lease(%{file: file, chunk: chunk, replicas: replicas}) do
+  defp get_or_issue_lease(%{file: file, chunk: chunk, replicas: replicas}, runtime) do
     result =
       Repo.transaction(fn ->
-        now = DateTime.utc_now()
+        now = Gfs.Runtime.now(runtime)
 
         case active_lease(chunk.uniq_id, now) do
           %Schema.Lease{} = existing -> {existing, chunk}
-          nil -> issue_lease(file, chunk, replicas, now)
+          nil -> issue_lease(file, chunk, replicas, now, runtime)
         end
       end)
 
@@ -398,8 +411,8 @@ defmodule Gfs.Manager.Metadata do
     )
   end
 
-  defp issue_lease(file, chunk, replicas, now) do
-    primary = Enum.random(replicas).chunk_server
+  defp issue_lease(file, chunk, replicas, now, runtime) do
+    primary = Gfs.Runtime.choose(runtime, replicas).chunk_server
     new_version = chunk.version + 1
     expires_at = DateTime.add(now, @lease_ttl_seconds, :second)
 

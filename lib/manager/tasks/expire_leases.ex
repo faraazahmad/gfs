@@ -7,19 +7,19 @@ defmodule Gfs.Manager.Task.ExpireLeases do
 
   @interval_ms 5_000
 
-  def start_link(_args) do
-    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  def start_link(runtime) do
+    GenServer.start_link(__MODULE__, runtime, name: __MODULE__)
   end
 
   @impl true
-  def init(state) do
+  def init(runtime) do
     schedule()
-    {:ok, state}
+    {:ok, runtime}
   end
 
   @impl true
-  def handle_info(:expire_leases, state) do
-    now = DateTime.utc_now()
+  def handle_info(:expire_leases, runtime) do
+    now = Gfs.Runtime.now(runtime)
 
     {count, _} =
       Repo.delete_all(
@@ -33,7 +33,7 @@ defmodule Gfs.Manager.Task.ExpireLeases do
     end
 
     schedule()
-    {:noreply, state}
+    {:noreply, runtime}
   end
 
   defp schedule do

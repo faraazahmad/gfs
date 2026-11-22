@@ -1,15 +1,15 @@
 defmodule Gfs.ChunkServer.App do
   use Supervisor
 
-  def start_link(init_arg) do
+  def start_link(_init_arg, runtime) do
     IO.puts("Starting GFS ChunkServer Application")
     :ets.new(:port, [:set, :protected, :named_table])
     :ets.insert(:port, {:http_server_port, get_free_port()})
-    Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
+    Supervisor.start_link(__MODULE__, %{runtime: runtime}, name: __MODULE__)
   end
 
   @impl true
-  def init(_args) do
+  def init(%{runtime: runtime}) do
     [http_server_port: port] = :ets.lookup(:port, :http_server_port)
 
     children = [
@@ -20,12 +20,11 @@ defmodule Gfs.ChunkServer.App do
         start: {:pg, :start_link, []}
       },
       Gfs.ChunkServer.Repo,
-      Gfs.ChunkServer.Serials,
-      Gfs.ChunkServer.Control,
-      # The chunkserver Bandit is kept so any HTTP-based client can still
-      # interact with the system.
+      {Gfs.ChunkServer.Serials, runtime},
+      {Gfs.ChunkServer.Control, runtime},
+      # The Bandit app is kept so any HTTP-based client can be created
       {Bandit, plug: Gfs.ChunkServer.RestApi, scheme: :http, port: port},
-      Gfs.ChunkServer.Task.MonitorNodes
+      {Gfs.ChunkServer.Task.MonitorNodes, runtime}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

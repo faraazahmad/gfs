@@ -13,8 +13,6 @@ defmodule Gfs.ChunkServer.Data do
   not from a GenServer.
   """
 
-  require Logger
-
   @chunk_size 64 * 1024 * 1024
   @replica_timeout 15_000
   @commit_timeout 5_000
@@ -155,7 +153,7 @@ defmodule Gfs.ChunkServer.Data do
       case :erpc.call(
              manager_node,
              Gfs.Manager.Metadata,
-             :commit_append,
+             :commit_append_remote,
              [lease_id, chunk_id, bytes, primary_id],
              @commit_timeout
            ) do
